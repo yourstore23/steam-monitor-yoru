@@ -18,6 +18,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      TZ: UTC
     steps:
       - uses: actions/checkout@v4
 
@@ -38,8 +40,13 @@ jobs:
           code=$?
           set -e
           # 2 = all SHAs already published; 3 = only version records changed.
-          if [ "$code" -eq 2 ] || [ "$code" -eq 3 ]; then
+          if [ "$code" -eq 2 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$code" -eq 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "versions_only=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           [ "$code" -eq 0 ] || exit "$code"
@@ -75,17 +82,38 @@ jobs:
           python3 tools/verify_repo.py
           python3 -m unittest discover -s tests -v
 
+      - name: Render README
+        if: steps.fetch.outputs.skip != 'true'
+        run: |
+          python3 -c "import json; print(json.dumps({'versions': json.load(open('pattern/versions.json'))}))" > /tmp/readme_data.json
+          npx -y knap@0.4.2 render templates/readme.md --data /tmp/readme_data.json --output README.md
+
       - name: Commit
         if: steps.fetch.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pattern ipc
+          git add pattern ipc README.md
           if git diff --cached --quiet; then
             echo "no changes"
             exit 0
           fi
           git commit -m "Update Steam client data ($(date -u +%Y-%m-%dT%H:%MZ))"
+          git push
+
+      - name: Commit version-only update
+        if: steps.fetch.outputs.versions_only == 'true'
+        run: |
+          python3 -c "import json; print(json.dumps({'versions': json.load(open('pattern/versions.json'))}))" > /tmp/readme_data.json
+          npx -y knap@0.4.2 render templates/readme.md --data /tmp/readme_data.json --output README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pattern/versions.json README.md
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "Record Steam build version"
           git push
 
       - name: File issue on failure

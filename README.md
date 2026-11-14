@@ -1,61 +1,13 @@
-# steam-monitor-yoru
+# Steam Client Pattern TOMLs
 
-Per-SHA hook metadata for OpenSteamTool, generated from Valve's public Steam
-client update CDN.
+Automatically published by steam-monitor-yoru. Do not edit by hand.
 
-Every 15 minutes CI polls the stable and beta win64 manifests. When a new build
-appears it downloads `steamclient64.dll` and `SteamUI.dll`, resolves the hook
-patterns and IPC metadata from the binaries, verifies the result, and commits
-per-SHA TOMLs. Client binaries are never committed (`bins/` is ignored).
+## Latest Steam client versions
 
-## Layout
+The version number is the client build's Unix timestamp; the Updated column shows it in UTC.
 
-```
-pattern/steamclient/<sha>.toml   hook RVAs + byte signatures
-pattern/steamui/<sha>.toml       same, for steamui.dll
-ipc/steamclient/<sha>.toml       interface/method/funcHash/fencepost
-pattern/versions.json            client version -> SHA pair
-known_good/                      reference values for current builds
-tools/                           fetch + resolvers + verifier
-```
+| Version | Channel | Updated (UTC) | steamclient64.dll | SteamUI.dll | IPC |
+| --- | --- | --- | --- | --- | --- |
+| 1794536281 | Stable | 2026-11-13 02:18:01 UTC | [669fa08e2592](pattern/steamclient/669fa08e259277fbf5a1dfe15ce88afe734e89151194304b44d92f418dcc985b.toml) | [2dfb0a5d50dd](pattern/steamui/2dfb0a5d50dd90667549cc7d413c7bfb0794c9af4ebaf08bf1cf7d938a11ea93.toml) | [669fa08e2592](ipc/steamclient/669fa08e259277fbf5a1dfe15ce88afe734e89151194304b44d92f418dcc985b.toml) |
 
-## Local run
-
-```sh
-python3 -m unittest discover -s tests -v
-
-python3 tools/fetch_client.py --out bins/ --channels stable beta \
-  --versions-file pattern/versions.json
-python3 tools/resolve_patterns.py resolve \
-  --dll bins/stable/steamclient64.dll --side steamclient --out-dir pattern/
-python3 tools/resolve_patterns.py resolve \
-  --dll bins/stable/SteamUI.dll --side steamui --out-dir pattern/
-python3 tools/resolve_ipc.py resolve \
-  --dll bins/stable/steamclient64.dll --out-dir ipc/
-python3 tools/verify_repo.py
-```
-
-## OpenSteamTool config
-
-Point `[remote]` at this repo:
-
-```toml
-[remote]
-url_templates = [
-  "https://cdn.jsdelivr.net/gh/yourstore23/steam-monitor-yoru@main/{channel}/{component}/{sha256}.toml",
-  "https://raw.githubusercontent.com/yourstore23/steam-monitor-yoru/main/{channel}/{component}/{sha256}.toml",
-]
-```
-
-`{channel}` is `pattern` or `ipc`, `{component}` is `steamclient` or `steamui`,
-and `{sha256}` is the SHA-256 of the corresponding Valve DLL.
-
-## Notes
-
-- No Steam login, API key, or VPS is required; GitHub Actions does the work.
-- Scheduled runs are best-effort. A new build can take up to ~15 minutes (plus
-  GitHub scheduling delay) to appear.
-- If resolution fails, the run publishes nothing and opens an issue with the
-  log.
-- `known_good/` stores one reference per build that has been verified by hand.
-  New builds are still derived automatically.
+Pipeline docs: [docs/pipeline.md](docs/pipeline.md).
