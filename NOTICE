@@ -1,0 +1,14 @@
+This repository vendors the Steam client monitoring pipeline from
+hazre/steam-monitor (https://github.com/hazre/steam-monitor), which does not
+declare a license. The following files are derived from that project:
+
+  tools/fetch_client.py
+  tools/resolve_patterns.py
+  tools/migrate_patterns.py
+
+tools/resolve_ipc.py was written for this repository. It resolves IPC metadata
+by matching method names to vtable wrappers and reading the constants each
+wrapper writes into its outgoing buffer.
+
+All published TOMLs are derived from Valve's public Steam client update CDN.
+No Steam client binaries are stored in this repository.

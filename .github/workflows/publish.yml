@@ -1,0 +1,101 @@
+name: publish
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch client binaries
+        id: fetch
+        run: |
+          set -euo pipefail
+          PUBLISHED=$(for f in pattern/steamclient/*.toml pattern/steamui/*.toml; do
+            [ -e "$f" ] && basename "$f" .toml
+          done | sort -u | tr '\n' ' ')
+          set +e
+          python3 tools/fetch_client.py --out bins/ --channels stable beta \
+            --published-shas $PUBLISHED --versions-file pattern/versions.json
+          code=$?
+          set -e
+          # 2 = all SHAs already published; 3 = only version records changed.
+          if [ "$code" -eq 2 ] || [ "$code" -eq 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$code" -eq 0 ] || exit "$code"
+          CHANNELS=""
+          for c in stable beta; do
+            if [ -f "bins/$c/steamclient64.dll" ]; then
+              CHANNELS="$CHANNELS $c"
+            fi
+          done
+          echo "channels=$CHANNELS" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve patterns and IPC
+        if: steps.fetch.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          : > resolve.log
+          for c in ${{ steps.fetch.outputs.channels }}; do
+            echo "== $c" | tee -a resolve.log
+            python3 tools/resolve_patterns.py resolve \
+              --dll "bins/$c/steamclient64.dll" --side steamclient --out-dir pattern/ \
+              2>&1 | tee -a resolve.log
+            python3 tools/resolve_patterns.py resolve \
+              --dll "bins/$c/SteamUI.dll" --side steamui --out-dir pattern/ \
+              2>&1 | tee -a resolve.log
+            python3 tools/resolve_ipc.py resolve \
+              --dll "bins/$c/steamclient64.dll" --out-dir ipc/ \
+              2>&1 | tee -a resolve.log
+          done
+
+      - name: Verify and test
+        if: steps.fetch.outputs.skip != 'true'
+        run: |
+          python3 tools/verify_repo.py
+          python3 -m unittest discover -s tests -v
+
+      - name: Commit
+        if: steps.fetch.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pattern ipc
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "Update Steam client data ($(date -u +%Y-%m-%dT%H:%MZ))"
+          git push
+
+      - name: File issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo ""
+            echo '```'
+            tail -n 100 resolve.log 2>/dev/null || true
+            echo '```'
+          } > issue.md
+          gh issue create --title "Resolver failure ${{ github.run_id }}" --body-file issue.md || true
