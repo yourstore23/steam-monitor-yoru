@@ -99,6 +99,11 @@ GPI_PREFIX = bytes.fromhex(
 CDC_PREFIX = bytes.fromhex(
     "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 68 45 8B F0 4C 8B E9 E8")
 CDC_AFTER = bytes.fromhex("45 33 E4 4C 8B F8 41 8B FC")
+# CheckAppLicense prologue: mov rbx,[rip+disp32] then a call, so pin the
+# skeleton and skip both displacements.
+ACL_PREFIX = bytes.fromhex("40 53 55 56 57 48 83 EC 28 48 8B 1D")
+ACL_MID = bytes.fromhex("48 8B E9 8B FA 48 8D 8B 90 12 00 00 E8")
+ACL_TAIL = bytes.fromhex("8B D7 48 8D 8B 90 12")
 # CUtlBufferEnsureCapacity prologue (identical in every published build; the
 # 6980e1cd beta gained a second exact-ref-set twin with a different prologue).
 CUBEC_PREFIX = bytes.fromhex(
@@ -420,6 +425,23 @@ def p2_checkdepot(ctx):
         if bytes(img.buf[after:after + len(CDC_AFTER)]) == CDC_AFTER:
             match.append(en)
     return _only(match, "CheckDepotLicense cands")
+
+
+def p2_checkapplicense(ctx):
+    img = ctx.img
+    n = len(ACL_PREFIX)
+    match = []
+    for en in ctx.entries:
+        o = img.rva2off(en)
+        if o is None or bytes(img.buf[o:o + n]) != ACL_PREFIX:
+            continue
+        j = o + n + 4  # skip mov rbx, [rip+disp32]
+        if bytes(img.buf[j:j + len(ACL_MID)]) != ACL_MID:
+            continue
+        k = j + len(ACL_MID) + 4  # skip the call's rel32
+        if bytes(img.buf[k:k + len(ACL_TAIL)]) == ACL_TAIL:
+            match.append(en)
+    return _only(match, "CheckAppLicense cands")
 
 
 def fnv1a(s: str) -> int:
@@ -866,6 +888,7 @@ def resolve(ctx: Ctx, side: str):
         emit("SendCallbackToPipe", *p2_scb(ctx))
         emit("GetPackageInfo", *p2_getpackageinfo(ctx))
         emit_soft("CheckDepotLicense", *p2_checkdepot(ctx))
+        emit_soft("CheckAppLicense", *p2_checkapplicense(ctx))
     return found, failed
 
 
