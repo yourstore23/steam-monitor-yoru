@@ -794,6 +794,22 @@ def resolve(ctx: Ctx, side: str):
             return
         found[name] = (rva, sig)
 
+    def emit_soft(name, rva, err):
+        """Optional hook: a miss skips the entry instead of failing the run.
+
+        Used for hooks the client can locate by an inline signature when the
+        feed has no entry, so one resolver change cannot block the whole
+        publish.
+        """
+        if err is not None or rva is None:
+            print(f"SKIP {name}: {err or 'no candidate'}")
+            return
+        sig = synth_sig(ctx, rva)
+        if sig is None:
+            print(f"SKIP {name}: sig not unique within cap")
+            return
+        found[name] = (rva, sig)
+
     if side == "steamui":
         F = found.get("FillInAppOverview", (None,))[0]
         B = found.get("BuildCompleteAppOverviewChange", (None,))[0]
@@ -849,7 +865,7 @@ def resolve(ctx: Ctx, side: str):
             emit("CheckAppOwnership", *p2_checkapp(ctx, cm))
         emit("SendCallbackToPipe", *p2_scb(ctx))
         emit("GetPackageInfo", *p2_getpackageinfo(ctx))
-        emit("CheckDepotLicense", *p2_checkdepot(ctx))
+        emit_soft("CheckDepotLicense", *p2_checkdepot(ctx))
     return found, failed
 
 
