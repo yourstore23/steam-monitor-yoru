@@ -94,6 +94,11 @@ GROW_PREFIX = bytes.fromhex(
 # GetPackageInfo prologue (20B, disp-free).
 GPI_PREFIX = bytes.fromhex(
     "48 89 5C 24 18 89 54 24 10 55 56 57 48 83 EC 20 44 8B 49 20")
+# CheckDepotLicense prologue. The rel32 of the call at +0x1A changes per build,
+# so pin the bytes before and after it instead of the whole prologue.
+CDC_PREFIX = bytes.fromhex(
+    "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8B EC 48 83 EC 68 45 8B F0 4C 8B E9 E8")
+CDC_AFTER = bytes.fromhex("45 33 E4 4C 8B F8 41 8B FC")
 # CUtlBufferEnsureCapacity prologue (identical in every published build; the
 # 6980e1cd beta gained a second exact-ref-set twin with a different prologue).
 CUBEC_PREFIX = bytes.fromhex(
@@ -401,6 +406,20 @@ def p2_getpackageinfo(ctx):
              if img.rva2off(en)
              and bytes(img.buf[img.rva2off(en):img.rva2off(en) + n]) == GPI_PREFIX]
     return _only(match, "GetPackageInfo cands")
+
+
+def p2_checkdepot(ctx):
+    img = ctx.img
+    n = len(CDC_PREFIX)
+    match = []
+    for en in ctx.entries:
+        o = img.rva2off(en)
+        if o is None or bytes(img.buf[o:o + n]) != CDC_PREFIX:
+            continue
+        after = o + n + 4  # skip the call's rel32
+        if bytes(img.buf[after:after + len(CDC_AFTER)]) == CDC_AFTER:
+            match.append(en)
+    return _only(match, "CheckDepotLicense cands")
 
 
 def fnv1a(s: str) -> int:
@@ -830,6 +849,7 @@ def resolve(ctx: Ctx, side: str):
             emit("CheckAppOwnership", *p2_checkapp(ctx, cm))
         emit("SendCallbackToPipe", *p2_scb(ctx))
         emit("GetPackageInfo", *p2_getpackageinfo(ctx))
+        emit("CheckDepotLicense", *p2_checkdepot(ctx))
     return found, failed
 
 
