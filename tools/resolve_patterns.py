@@ -367,12 +367,19 @@ def p2_appid(ctx):
     return _only(hot, "GetAppIDPipe cands")
 
 
-def p2_pipeclient(ctx):
-    cands = [t for t in ctx.entries
-             if not ctx.refs_by_func().get(t) and ctx.func_size(t) == 0x150]
-    counts = ctx.e8_count_many({t + 0xA0 for t in cands})
-    hot = [t + 0xA0 for t in cands if counts[t + 0xA0] >= 5]
-    return _only(hot, "GetPipeClient cands")
+def p2_pipeclient(ctx, ipc):
+    # GetPipeClient's body starts inside the pdata chunk before it, after the
+    # chunk's shared header. That header grew 0xA0 -> 0xB0 in beta 1795048523,
+    # so find hot call targets inside the small chunks after IPCProcessMessage
+    # instead of pinning the chunk size and the body offset.
+    rbf = ctx.refs_by_func()
+    window = [t for t in ctx.entries
+              if ipc <= t <= ipc + 0x1000 and not rbf.get(t)
+              and 0x100 <= ctx.func_size(t) <= 0x200]
+    targets = {t + k for t in window for k in range(0x80, 0xD0, 0x10)
+               if ctx.func_of(t + k) != t + k}
+    counts = ctx.e8_count_many(targets)
+    return _only([a for a in targets if counts[a] >= 5], "GetPipeClient cands")
 
 
 def p2_getoradd(ctx, ga, cm):
@@ -872,7 +879,11 @@ def resolve(ctx: Ctx, side: str):
         emit("ProcessPendingLicenseUpdates", *p2_pplu(ctx))
         emit("RecvPkt", *p2_recvpkt(ctx))
         emit("GetAppIDForCurrentPipe", *p2_appid(ctx))
-        emit("GetPipeClient", *p2_pipeclient(ctx))
+        ipc = found.get("IPCProcessMessage", (None,))[0]
+        if ipc is None:
+            failed.append(("GetPipeClient", "IPCProcessMessage anchor unresolved"))
+        else:
+            emit("GetPipeClient", *p2_pipeclient(ctx, ipc))
         ga = found.get("GetAppDataFromAppInfo", (None,))[0]
         if ga is None:
             failed.append(("GetOrAddAppData", "GetAppData anchor unresolved"))
